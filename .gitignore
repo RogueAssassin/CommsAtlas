@@ -1,0 +1,26 @@
+# Build output and local files
+release/
+dist/
+local/
+server/bin/
+server/obj/
+server/wwwroot/
+server/data/
+*.run
+*.zip
+
+# Editors and OS
+.vs/
+.vscode/
+.idea/
+*.user
+Thumbs.db
+.DS_Store
+
+# Never commit secrets or data
+secret.key
+connectors.json
+*.db
+*.db-wal
+*.db-shm
+.env

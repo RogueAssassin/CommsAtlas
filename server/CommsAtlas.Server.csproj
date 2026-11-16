@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CommsAtlas.Server</AssemblyName>
+    <RootNamespace>CommsAtlas.Server</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Set by build.ps1 (-p:BuildNumber=...); read back by Build.Number(). -->
+    <BuildNumber Condition="'$(BuildNumber)' == ''">dev</BuildNumber>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- One program file: the web app is embedded in it and the native SQLite library is carried inside and unpacked at first start.
+         The .NET 10 ASP.NET Core runtime is the only thing it needs on the machine (the installer sees to that). -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <!-- The SQLite engine itself, newer than the one Microsoft.Data.Sqlite brings, which has a known security advisory (GHSA-2m69-gcr7-jv3q). -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.0" />
+    <AssemblyMetadata Include="BuildNumber" Value="$(BuildNumber)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The web app: build.ps1 copies the stamped files into wwwroot/ before publishing and they are embedded in the program
+         (config.js is not among them: the server writes it from appsettings.json). Nothing is published beside the program. -->
+    <Content Remove="wwwroot\**" />
+    <None Remove="wwwroot\**" />
+    <EmbeddedResource Include="wwwroot\**" Condition="Exists('wwwroot')" />
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+</Project>
