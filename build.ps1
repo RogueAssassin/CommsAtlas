@@ -49,9 +49,19 @@ Copy-Item -Recurse $src $embed
 [IO.File]::WriteAllText((Join-Path $embed 'version.js'), "window.APP_BUILD = { number: '$build', time: '$when' };`n", $utf8)
 $index = Join-Path $embed 'index.html'
 $html = [IO.File]::ReadAllText($index)
-$html = [regex]::Replace($html, '(src|href)="(/(?:js/[^"?]+\.js|styles\.css|version\.js))"', "`$1=`"`$2?b=$build`"")
+$html = [regex]::Replace($html, '(src|href)="(/(?:js/[^"?]+\.js|styles\.css|visual-refresh\.css|version\.js))"', "`$1=`"`$2?b=$build`"")
 [IO.File]::WriteAllText($index, $html, $utf8)
 Remove-Item (Join-Path $embed 'config.js')
+# Pictures too: every picture and the favicon is addressed with the build number, so a changed picture is never held back by a browser
+# or a CDN (Cloudflare kept the old logo and sign-in picture for a week). The server keeps an address with ?b= for a year.
+$imgRef = '(/(?:img/[A-Za-z0-9_.-]+\.(?:png|jpe?g|webp|svg|ico)|favicon\.ico))(?![A-Za-z0-9_.?-])'
+$stamped = 0
+Get-ChildItem $embed -Recurse -File -Include *.html, *.js, *.css | Where-Object { $_.FullName -notmatch '\\vendor\\' } | ForEach-Object {
+    $t = [IO.File]::ReadAllText($_.FullName)
+    $n = [regex]::Replace($t, $imgRef, "`$1?b=$build")
+    if ($n -ne $t) { [IO.File]::WriteAllText($_.FullName, $n, $utf8); $stamped++ }
+}
+Write-Host "Picture addresses stamped in $stamped files"
 
 # 2. The server as ONE program file.
 $pub = Join-Path $rel 'publish'
