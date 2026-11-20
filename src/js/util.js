@@ -162,12 +162,12 @@
 
   /** The emblem on its own (printouts, small spaces). */
   RB.logo = function () {
-    return '<img class="logo-mark" src="/img/atlas-symbol.svg" width="30" height="30" alt="">';
+    return '<img class="logo-mark" src="/img/emblem-128.png" width="30" height="30" alt="">';
   };
   /** The horizontal CommsAtlas logo: emblem and name. */
   RB.wordLogo = function (cls, h) {
     const hh = h || 40;
-    return '<img class="' + (cls || 'brand-logo') + '" src="/img/atlas-wordmark.svg" width="' + Math.round(hh * 3) + '" height="' + hh + '" alt="' + RB.esc(RB.APP_NAME || 'CommsAtlas') + '">';
+    return '<img class="' + (cls || 'brand-logo') + '" src="/img/website-logo.png" width="' + Math.round(hh * 3) + '" height="' + hh + '" alt="' + RB.esc(RB.APP_NAME || 'CommsAtlas') + '">';
   };
 })();
 

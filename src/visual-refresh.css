@@ -107,7 +107,6 @@ input:focus,select:focus,textarea:focus {box-shadow:0 0 0 3px color-mix(in srgb,
 .statusbar {background:#102438;color:#bdd0db;border-top-color:#29455a;}
 .inspector {background:var(--surface);}
 .popover {border-radius:12px;box-shadow:var(--shadow-lg);}
-.gate {background-color:#0d283b;background-image:linear-gradient(110deg,rgba(12,35,54,.82),rgba(8,44,61,.7)),url('/img/atlas-infrastructure.svg');}
 .gate-card {border-radius:18px;box-shadow:0 30px 75px rgba(2,16,29,.3);}
 .gate-wordmark {border-radius:12px;box-shadow:0 0 0 1px rgba(34,161,179,.3);}
 .gate-brand em {color:var(--text-3);}
