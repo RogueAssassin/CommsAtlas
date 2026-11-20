@@ -275,6 +275,10 @@
     ['sites', 'floors', 'rooms', 'racks', 'templates', 'devices', 'connections', 'vlans', 'wlans', 'rackStandards', 'history']
       .forEach((k) => { if (!Array.isArray(s[k])) s[k] = []; });
     s.devices.forEach((d) => { if (!d.portMeta || typeof d.portMeta !== 'object') d.portMeta = {}; });
+    // Positions on a plan are numbers (per cent) and colours are hex values: they are written into the page, so nothing else is let through.
+    const cleanPos = (o) => { const p = o.pos; if (p == null) return; if (typeof p === 'object' && Number.isFinite(+p.x) && Number.isFinite(+p.y)) o.pos = { x: RB.clamp(+p.x, 0, 100), y: RB.clamp(+p.y, 0, 100) }; else delete o.pos; };
+    s.racks.forEach(cleanPos); s.devices.forEach(cleanPos);
+    s.templates.forEach((t) => { if (t && t.color != null && !/^#[0-9a-fA-F]{3,8}$/.test(String(t.color))) t.color = '#e5e5e5'; });
     // Each site keeps its own IP range for every VLAN; the VLAN numbers, names and colours are shared by all sites.
     s.sites.forEach((x) => {
       if (!x.nets || typeof x.nets !== 'object' || Array.isArray(x.nets)) x.nets = {};
@@ -283,7 +287,19 @@
       if (x.lon != null && Math.abs(x.lon) > 180) x.lon = null;
     });
     s.racks.forEach((r) => { r.units = RB.clamp(parseInt(r.units, 10) || 42, 1, 60); if (!r.numbering) r.numbering = 'bottom'; });
-    // Comms rooms sit under a site, either directly or through a floor / building.
+    // A level's plan picture is a stored reference ("plan:<id>") or an inline picture, with its size and (optionally) the metres across its width.
+    s.floors.forEach((f) => {
+      const p = f.plan;
+      if (!p || typeof p !== 'object' || typeof p.ref !== 'string' || !(p.w > 0) || !(p.h > 0)) { f.plan = null; return; }
+      p.w = Math.round(p.w); p.h = Math.round(p.h);
+      const m = parseFloat(p.m); p.m = Number.isFinite(m) && m > 0 ? m : null;
+    });
+    // Comms rooms sit under a site, either directly or through a floor / building; one on a level's plan has a position in per cent.
+    s.rooms.forEach((r) => {
+      const p = r.pos;
+      if (p && !(Number.isFinite(p.x) && Number.isFinite(p.y))) delete r.pos;
+      else if (p) r.pos = { x: RB.clamp(p.x, 0, 100), y: RB.clamp(p.y, 0, 100) };
+    });
     s.rooms.forEach((r) => {
       if (!r.floorId) r.floorId = null;
       const f = r.floorId && s.floors.find((x) => x.id === r.floorId);

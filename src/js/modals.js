@@ -67,7 +67,7 @@
         '<input type="color" id="' + id + '" name="' + f.name + '" value="' + esc(v || '#2563eb') + '" aria-label="Custom colour"></div>';
     } else {
       input = '<input id="' + id + '" name="' + f.name + '" type="' + (f.type || 'text') + '" value="' + esc(v) + '"' +
-        (f.min != null ? ' min="' + f.min + '"' : '') + (f.max != null ? ' max="' + f.max + '"' : '') +
+         (f.step ? ' step="' + f.step + '"' : '') + (f.min != null ? ' min="' + f.min + '"' : '') + (f.max != null ? ' max="' + f.max + '"' : '') +
         (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') + (f.required ? ' required' : '') + (f.list ? ' list="' + id + '_l"' : '') + '>' +
         (f.list ? '<datalist id="' + id + '_l">' + f.list.map((x) => '<option value="' + esc(x) + '">').join('') + '</datalist>' : '');
     }
@@ -526,7 +526,7 @@
     body.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-a]'); if (!b) return;
       const a = b.dataset.a;
-      if (a === 'export') RB.download(RB.slug(S().workspace) + '-' + new Date().toISOString().slice(0, 10) + '.json', RB.store.exportJSON(), 'application/json');
+      if (a === 'export') { try { RB.download(RB.slug(S().workspace) + '-' + new Date().toISOString().slice(0, 10) + '.json', RB.plans ? await RB.plans.forBackup() : RB.store.exportJSON(), 'application/json'); } catch (err) { RB.toast(err.message, 'error'); } }
       if (a === 'import') file.click();
       if (a === 'xlsx') { m.close(); RB.openSheetImport(); }
       if (a === 'xlsx-out') RB.exportWorkbook();

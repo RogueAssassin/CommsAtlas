@@ -30,6 +30,7 @@ sealed class Db
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY, name TEXT NOT NULL, created INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS plan_files (tenant TEXT NOT NULL, id TEXT NOT NULL, mime TEXT NOT NULL, data BLOB NOT NULL, created INTEGER NOT NULL, created_by TEXT NOT NULL, PRIMARY KEY (tenant, id));
             """);
         // Which tenants a person may open: empty means all of them, otherwise a JSON list of tenant ids. (Added in version 3.)
         if (Scalar<long>("SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='tenants'") == 0) Exec(c, "ALTER TABLE users ADD COLUMN tenants TEXT");

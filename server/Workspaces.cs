@@ -24,6 +24,62 @@ class WorkspaceStore(Db db)
         return JsonNode.Parse(row.Json) is JsonObject ws ? new Saved(row.Rev, DateTimeOffset.Parse(row.At), row.By, ws) : null;
     }
     public long Rev(string id) => ValidId(id) ? db.Scalar<long>("SELECT rev FROM workspaces WHERE tenant=$t", ("$t", id)) : 0;
+    /* ---------- floor plan pictures: kept beside the records, not inside them, so a save (and each of its 40 kept versions) stays small ---------- */
+    public const int MaxPlanBytes = 12 * 1024 * 1024, MaxPlansPerTenant = 300;
+    static readonly Regex PlanId = new("^[a-f0-9]{16}$");
+    public static bool ValidPlanId(string id) => PlanId.IsMatch(id);
+    /** The picture type by its first bytes (never by what the sender says it is), or null if it is not a PNG, JPEG or WebP picture. */
+    public static string? PlanMime(ReadOnlySpan<byte> b)
+    {
+        if (b.Length > 12 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47) return "image/png";
+        if (b.Length > 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) return "image/jpeg";
+        if (b.Length > 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P') return "image/webp";
+        return null;
+    }
+    /** Stores a picture for a tenant; returns its id, or null when the tenant already holds the maximum number of pictures. */
+    public string? PutPlan(string tenant, string mime, byte[] data, string by)
+    {
+        if (!ValidId(tenant)) return null;
+        lock (planLock)
+        {
+            // At the limit, pictures that no saved version refers to any more (replaced, removed, or left by an import that failed) are cleared first.
+            if (PlanCount(tenant) >= MaxPlansPerTenant) SweepPlans(tenant, 3600);
+            if (PlanCount(tenant) >= MaxPlansPerTenant) return null;
+            return InsertPlan(tenant, mime, data, by);
+        }
+    }
+    static readonly object planLock = new();
+    long PlanCount(string tenant) => db.Scalar<long>("SELECT COUNT(*) FROM plan_files WHERE tenant=$t", ("$t", tenant));
+    /** Deletes this tenant's pictures that neither the current records nor any of the kept earlier versions refer to, and that are older than a grace period
+        (so a picture uploaded a moment ago by an import that has not saved yet is safe). Returns how many were removed. */
+    public int SweepPlans(string tenant, int graceSeconds)
+    {
+        var used = new HashSet<string>();
+        var pat = new Regex("plan:([a-f0-9]{16})");
+        void Scan(string text) { foreach (Match m in pat.Matches(text)) used.Add(m.Groups[1].Value); }
+        foreach (var j in db.Rows("SELECT json FROM workspaces WHERE tenant=$t", r => r.GetString(0), ("$t", tenant))) Scan(j);
+        foreach (var d in db.Rows("SELECT data FROM workspace_history WHERE tenant=$t", r => (byte[])r[0], ("$t", tenant)))
+        { try { Scan(Db.Gunzip(d)); } catch (Exception) { /* an unreadable version cannot be scanned; its pictures are kept below */ return 0; } }
+        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - graceSeconds;
+        var gone = 0;
+        foreach (var (id, created) in db.Rows("SELECT id,created FROM plan_files WHERE tenant=$t", r => (r.GetString(0), r.GetInt64(1)), ("$t", tenant)))
+            if (!used.Contains(id) && created < cutoff) { db.Exec("DELETE FROM plan_files WHERE tenant=$t AND id=$i", ("$t", tenant), ("$i", id)); gone++; }
+        return gone;
+    }
+    string InsertPlan(string tenant, string mime, byte[] data, string by)
+    {
+        var id = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
+        db.Exec("INSERT INTO plan_files(tenant,id,mime,data,created,created_by) VALUES($t,$i,$m,$d,$c,$b)",
+            ("$t", tenant), ("$i", id), ("$m", mime), ("$d", data), ("$c", DateTimeOffset.UtcNow.ToUnixTimeSeconds()), ("$b", by));
+        return id;
+    }
+    public (string Mime, byte[] Data)? GetPlan(string tenant, string id)
+    {
+        if (!ValidId(tenant) || !ValidPlanId(id)) return null;
+        var row = db.Rows("SELECT mime,data FROM plan_files WHERE tenant=$t AND id=$i", r => (Mime: r.GetString(0), Data: (byte[])r.GetValue(1)), ("$t", tenant), ("$i", id)).FirstOrDefault();
+        return row.Data is null ? null : (row.Mime, row.Data);
+    }
+
     /* ---------- tenants: each is one client with its own sites, rooms, racks and library ---------- */
     public const int MaxTenants = 200;
     public IEnumerable<Summary> List() => db.Rows(
@@ -69,6 +125,7 @@ class WorkspaceStore(Db db)
         if (!Exists(id)) return false;
         using var c = db.Open(); using var tx = c.BeginTransaction();
         Db.Exec(c, "DELETE FROM workspace_history WHERE tenant=$t", ("$t", id));
+        Db.Exec(c, "DELETE FROM plan_files WHERE tenant=$t", ("$t", id));
         Db.Exec(c, "DELETE FROM workspaces WHERE tenant=$t", ("$t", id));
         Db.Exec(c, "DELETE FROM tenants WHERE id=$t", ("$t", id));
         tx.Commit(); return true;

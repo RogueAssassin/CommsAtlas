@@ -364,6 +364,8 @@
     } else {
       body += '<div class="stat-row">' + stats.map((s) => '<div class="stat"><b>' + s[1] + '</b><span>' + s[0] + '</span></div>').join('') + '</div>';
       body += attentionCard(racks);
+      if (n.type === 'floor' && RB.floorPlanHtml) body += RB.floorPlanHtml(RB.get.floor(n.id));
+      if (n.type === 'site' && RB.levelsHtml) body += RB.levelsHtml(RB.get.site(n.id));
       if (n.type === 'site' && RB.siteBoxes) body += RB.siteBoxes(RB.get.site(n.id));
       const card = (r, withPath) => {
         const occ = RB.occupancy(r.id);
@@ -487,10 +489,10 @@
       const p = item.pos || auto[item.id] || { x: 50, y: 50 };
       const sel = RB.ui.sel && RB.ui.sel.id === item.id;
       const trace = RB.ui.traceSet && kind === 'device' && Array.from(RB.ui.traceSet).some((k) => k.startsWith(item.id + '|'));
-      return '<button type="button" class="marker marker--' + kind + (sel ? ' is-sel' : '') + (trace ? ' is-trace' : '') + '" data-marker="' + kind + '" data-id="' + item.id + '" style="left:' + p.x + '%;top:' + p.y + '%">' +
+      return '<button type="button" class="marker marker--' + kind + (sel ? ' is-sel' : '') + (trace ? ' is-trace' : '') + '" data-marker="' + kind + '" data-id="' + esc(item.id) + '" style="left:' + (+p.x || 0) + '%;top:' + (+p.y || 0) + '%">' +
         '<span class="mk-dot">' + ic(icon, 13) + '</span><span class="mk-name">' + esc(item.name) + (extra || '') + '</span></button>';
     };
-    const plan = '<div class="plan' + (room.plan ? ' has-img' : '') + '" id="plan">' + (room.plan ? '<img src="' + room.plan + '" alt="Floor plan of ' + esc(room.name) + '" draggable="false">' : '<div class="plan-grid">' + (racks.length || eps.length ? '' : '<span>Drop outlets and racks here. Add a floor plan picture to place them where they really are.</span>') + '</div>') +
+    const plan = '<div class="plan' + (room.plan ? ' has-img' : '') + '" id="plan">' + (room.plan ? RB.plans.imgHtml(room.plan, 'Floor plan of ' + room.name) : '<div class="plan-grid">' + (racks.length || eps.length ? '' : '<span>Drop outlets and racks here. Add a floor plan picture to place them where they really are.</span>') + '</div>') +
       racks.map((r) => marker('rack', r, 'rack')).join('') + eps.map((d) => marker('device', d, 'pin')).join('') + '</div>';
     const rackList = racks.length ? '<div class="rack-cards rack-cards--sm">' + racks.map((r) => {
       const occ = RB.occupancy(r.id);

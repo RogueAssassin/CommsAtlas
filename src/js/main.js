@@ -292,7 +292,7 @@
         const url = await RB.readImage(file, 640, 0.78);
         RB.store.commit('Added a photo to ' + RB.get.device(t.id).name, (s) => { s.devices.find((d) => d.id === t.id).photo = url; });
       } else if (t.kind === 'plan') {
-        const url = await RB.readImage(file, 1800, 0.8);
+        const got = await RB.plans.store(file); const url = got.ref;
         RB.store.commit('Added a floor plan to ' + RB.get.room(t.id).name, (s) => { s.rooms.find((r) => r.id === t.id).plan = url; });
       }
     } catch (err) { RB.toast(err.message, 'error'); }
@@ -414,13 +414,14 @@
     const m = mdrag; mdrag = null;
     const kind = m.el.dataset.marker, id = m.el.dataset.id;
     if (!m.moved) {
-      if (kind === 'rack') RB.navigate('rack', id); else RB.select('device', id);
+      if (kind === 'rack') RB.navigate('rack', id); else if (kind === 'room') RB.navigate('room', id); else RB.select('device', id);
       return;
     }
     const pos = { x: Math.round(m.px * 10) / 10, y: Math.round(m.py * 10) / 10 };
-    RB.store.commit('Moved ' + (kind === 'rack' ? RB.get.rack(id).name : RB.get.device(id).name) + ' on the floor plan', (s) => {
-      (kind === 'rack' ? s.racks : s.devices).find((x) => x.id === id).pos = pos;
-    });
+    const list = (s) => (kind === 'rack' ? s.racks : kind === 'room' ? s.rooms : s.devices);
+    const what = kind === 'rack' ? RB.get.rack(id) : kind === 'room' ? RB.get.room(id) : RB.get.device(id);
+    // The marker was moved on screen while dragging; if the change is refused (a Viewer) or the item has gone, draw it where it really is.
+    if (!what || !RB.store.commit('Moved ' + what.name + ' on the floor plan', (s) => { const x = list(s).find((y) => y.id === id); if (x) x.pos = pos; })) RB.render();
   }
 
   /* ======================= click handling ======================= */
@@ -760,13 +761,13 @@
       showGhost(geom, pos, units, RB.fits(geom.rack.id, pos, units));
       return;
     }
-    const plan = e.target.closest && e.target.closest('.plan');
+    const plan = e.target.closest && e.target.closest('.plan:not([data-floor])');
     if (plan && RB.unitsOfTpl(tpl) === 0) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; plan.classList.add('is-over'); }
   }
   function onDragLeave(e) {
     const rackEl = e.target.closest && e.target.closest('.rack');
     if (rackEl && !rackEl.contains(e.relatedTarget)) showGhost(rackGeom(rackEl), null);
-    const plan = e.target.closest && e.target.closest('.plan');
+    const plan = e.target.closest && e.target.closest('.plan:not([data-floor])');
     if (plan && !plan.contains(e.relatedTarget)) plan.classList.remove('is-over');
   }
   function onDrop(e) {
@@ -791,7 +792,7 @@
       RB.addDevice(tplId, geom.rack.id, uAt(geom, e.clientY) - units + 1);
       return;
     }
-    const plan = e.target.closest && e.target.closest('.plan');
+    const plan = e.target.closest && e.target.closest('.plan:not([data-floor])');
     if (plan) {
       e.preventDefault();
       plan.classList.remove('is-over');

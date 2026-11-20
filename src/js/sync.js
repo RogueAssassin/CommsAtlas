@@ -22,6 +22,7 @@
   const base = () => '/api/v1/tenants/' + encodeURIComponent(RB.store.tenantId || 'default');
   function setStatus(st, note) { srv.status = st; srv.note = note || ''; const sb = RB.$('#srvState'); if (sb) sb.outerHTML = RB.server.badge(); }
 
+  srv.headers = headers; // used by plans.js to fetch and store floor plan pictures
   srv.badge = function () {
     const map = { local: ['ok', 'Saved in this browser'], ok: ['ok', 'Saved to the server'], saving: ['', 'Saving to the server…'], offline: ['warn', 'Server unreachable · kept in this browser'], signin: ['warn', 'Sign in again to save to the server'], readonly: ['', 'Server · view only'], conflict: ['warn', 'Updated from the server'] };
     const m = map[srv.status] || map.local;
@@ -102,7 +103,8 @@
     // Pick up other people's changes.
     clearInterval(pollTimer);
     pollTimer = setInterval(async () => {
-      if (document.hidden || inFlight || pending || !hasCredential()) return;
+      // Not while a change of this person's is waiting to be saved: adopting the server's records now would throw that change away.
+      if (document.hidden || inFlight || pending || dirty || !hasCredential()) return;
       try {
         const r = await call('GET', base() + '/rev');
         if (r.ok && r.j.rev && r.j.rev !== RB.store.serverRev) await pull(false);

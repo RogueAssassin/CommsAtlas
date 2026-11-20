@@ -81,7 +81,9 @@ app.Use(async (ctx, next) =>
         h["Cache-Control"] = "no-store";
         // Only saving a workspace needs a large body; everything else (including all sign-in requests) is small.
         var big = HttpMethods.IsPut(ctx.Request.Method) && ctx.Request.Path.Value!.EndsWith("/workspace", StringComparison.Ordinal);
-        if (!big && ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } lim) lim.MaxRequestBodySize = 256 * 1024;
+        // A floor plan picture is sent as the raw file, up to the limit set in WorkspaceStore.
+        if (HttpMethods.IsPost(ctx.Request.Method) && ctx.Request.Path.Value!.EndsWith("/plans", StringComparison.Ordinal) && ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } pl) pl.MaxRequestBodySize = WorkspaceStore.MaxPlanBytes + 1024;
+        else if (!big && ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } lim) lim.MaxRequestBodySize = 256 * 1024;
     }
     await next();
 });
@@ -191,10 +193,43 @@ app.MapPut("/api/v1/tenants/{tenant}/workspace", async (HttpContext ctx, string 
     var body = await Body(ctx);
     if (body?["workspace"] is not JsonObject ws || ws["racks"] is not JsonArray || ws["devices"] is not JsonArray)
         return Results.Json(new { error = "Send { rev, workspace } with a whole workspace." }, statusCode: 400);
-    var baseRev = body["rev"]?.GetValue<long>() ?? -1;
+    // The saved version the sender started from is required, so a stale save is always noticed (a missing or non-numeric one is refused).
+    if (body["rev"] is not JsonValue rv || !rv.TryGetValue<long>(out var baseRev))
+        return Results.Json(new { error = "Send { rev, workspace } with the number of the version you started from." }, statusCode: 400);
     var result = await store.Write(tenant, ws, baseRev, c!.Name);
     if (result.Conflict) return Results.Json(new { error = "Someone else saved first.", rev = result.Rev }, statusCode: 409);
     return Results.Json(new { rev = result.Rev });
+});
+
+/* ---------------- floor plan pictures: stored per tenant, shown only to people who may open that tenant ---------------- */
+app.MapPost("/api/v1/tenants/{tenant}/plans", async (HttpContext ctx, string tenant) =>
+{
+    var c = Who(ctx); if (Deny(c, 2, tenant) is { } d) return d;
+    if (ctx.Request.ContentLength > WorkspaceStore.MaxPlanBytes) return Results.Json(new { error = "That picture is too large (the limit is 12 MB)." }, statusCode: 413);
+    using var ms = new MemoryStream();
+    try { await ctx.Request.Body.CopyToAsync(ms); }
+    catch (Microsoft.AspNetCore.Http.BadHttpRequestException) { return Results.Json(new { error = "That picture is too large (the limit is 12 MB)." }, statusCode: 413); }
+    var bytes = ms.ToArray();
+    if (bytes.Length == 0 || bytes.Length > WorkspaceStore.MaxPlanBytes) return Results.Json(new { error = "Send the picture file (up to 12 MB)." }, statusCode: 413);
+    var mime = WorkspaceStore.PlanMime(bytes);
+    if (mime is null) return Results.Json(new { error = "Only PNG, JPEG or WebP pictures can be stored." }, statusCode: 415);
+    var id = store.PutPlan(tenant, mime, bytes, c!.Name);
+    if (id is null) return Results.Json(new { error = "This tenant already holds the maximum number of floor plan pictures." }, statusCode: 409);
+    return Results.Json(new { id, bytes = bytes.Length, mime });
+});
+app.MapGet("/api/v1/tenants/{tenant}/plans/{id}", (HttpContext ctx, string tenant, string id) =>
+{
+    var c = Who(ctx); if (Deny(c, 1, tenant) is { } d) return d;
+    var p = store.GetPlan(tenant, id);
+    if (p is null) return Results.Json(new { error = "No such picture." }, statusCode: 404);
+    // A stored picture never changes (a new upload gets a new id); it is private to the signed-in person.
+    // Checked with the server each time (so a person who may no longer open the tenant is not served from the browser's cache), but a 304 costs nothing.
+    ctx.Response.Headers["Cache-Control"] = "private, no-cache";
+    ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    var etag = "\"" + id + "\"";
+    ctx.Response.Headers["ETag"] = etag;
+    if (ctx.Request.Headers.IfNoneMatch.ToString() == etag) return Results.StatusCode(304);
+    return Results.Bytes(p.Value.Data, p.Value.Mime);
 });
 
 /* ---------------- connectors: this server calling other systems' APIs with their keys ----------------
@@ -1183,6 +1218,51 @@ static class SelfTest
             Check("…but their own tenant opens", r.Code == 200, r.Code.ToString());
             r = await Call(HttpMethod.Patch, "/api/v1/tenants/" + tid, boss, new JsonObject { ["name"] = "Acme Care - Test" });
             Check("a Super Admin renames a tenant", r.Code == 200 && r.Body?["name"]?.ToString() == "Acme Care - Test", r.Text);
+            /* floor plan pictures */
+            var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52, 1, 2, 3 };
+            async Task<(int Code, string Text, byte[] Raw, string? Type)> Raw(HttpMethod m, string path, string? token, byte[]? body)
+            {
+                using var req = new HttpRequestMessage(m, path);
+                if (token is not null) req.Headers.Add("Authorization", "Bearer " + token);
+                if (body is not null) { req.Content = new ByteArrayContent(body); req.Content.Headers.ContentType = new("application/octet-stream"); }
+                using var res = await http.SendAsync(req);
+                var raw = await res.Content.ReadAsByteArrayAsync();
+                return ((int)res.StatusCode, Encoding.UTF8.GetString(raw.Length > 300 ? raw[..300] : raw), raw, res.Content.Headers.ContentType?.MediaType);
+            }
+            var pr = await Raw(HttpMethod.Post, "/api/v1/tenants/default/plans", null, png);
+            Check("a floor plan picture needs a sign-in → 401", pr.Code == 401, pr.Code.ToString());
+            pr = await Raw(HttpMethod.Post, "/api/v1/tenants/default/plans", viewer, png);
+            Check("a Viewer cannot add a floor plan picture → 403", pr.Code == 403, pr.Code.ToString());
+            pr = await Raw(HttpMethod.Post, "/api/v1/tenants/default/plans", editor, Encoding.ASCII.GetBytes("<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"));
+            Check("an SVG (or anything that is not PNG, JPEG or WebP) is refused → 415", pr.Code == 415, pr.Code + " " + pr.Text);
+            pr = await Raw(HttpMethod.Post, "/api/v1/tenants/default/plans", editor, Array.Empty<byte>());
+            Check("an empty upload is refused", pr.Code == 413, pr.Code.ToString());
+            pr = await Raw(HttpMethod.Post, "/api/v1/tenants/default/plans", editor, png);
+            var planId = pr.Code == 200 ? (JsonNode.Parse(pr.Text)?["id"]?.ToString() ?? "") : "";
+            Check("an Editor stores a floor plan picture", pr.Code == 200 && planId.Length == 16, pr.Code + " " + pr.Text);
+            pr = await Raw(HttpMethod.Get, "/api/v1/tenants/default/plans/" + planId, viewer, null);
+            Check("a Viewer of that tenant can see it, with the right type", pr.Code == 200 && pr.Type == "image/png" && pr.Raw.SequenceEqual(png), pr.Code + " " + pr.Type);
+            using (var cond = new HttpRequestMessage(HttpMethod.Get, "/api/v1/tenants/default/plans/" + planId))
+            {
+                cond.Headers.Add("Authorization", "Bearer " + viewer); cond.Headers.Add("If-None-Match", "\"" + planId + "\"");
+                using var cres = await http.SendAsync(cond);
+                Check("a picture the browser already holds answers 304 (and is always re-checked)", (int)cres.StatusCode == 304 && cres.Headers.CacheControl?.NoCache == true, ((int)cres.StatusCode).ToString());
+            }
+            r = await Call(HttpMethod.Put, "/api/v1/tenants/default/workspace", editor, new JsonObject { ["workspace"] = ws.DeepClone() });
+            Check("a save with no version number is refused → 400", r.Code == 400, r.Code.ToString());
+            r = await Call(HttpMethod.Put, "/api/v1/tenants/default/workspace", editor, new JsonObject { ["rev"] = "x", ["workspace"] = ws.DeepClone() });
+            Check("a save with a non-numeric version is refused → 400, not a crash", r.Code == 400, r.Code.ToString());
+            pr = await Raw(HttpMethod.Get, "/api/v1/tenants/default/plans/" + planId, null, null);
+            Check("…but not without signing in → 401", pr.Code == 401, pr.Code.ToString());
+            pr = await Raw(HttpMethod.Get, "/api/v1/tenants/" + tid + "/plans/" + planId, editor, null);
+            Check("…and not through another tenant → 404", pr.Code == 404, pr.Code.ToString());
+            pr = await Raw(HttpMethod.Get, "/api/v1/tenants/default/plans/..%2F..%2Fx", editor, null);
+            Check("a plan id that is not 16 hex characters finds nothing", pr.Code == 404 || pr.Code == 400, pr.Code.ToString());
+            var bigBody = new byte[WorkspaceStore.MaxPlanBytes + 2048]; bigBody[0] = 0x89; bigBody[1] = 0x50; bigBody[2] = 0x4E; bigBody[3] = 0x47;
+            var refusedBig = false; var bigCode = 0;
+            try { pr = await Raw(HttpMethod.Post, "/api/v1/tenants/default/plans", editor, bigBody); bigCode = pr.Code; refusedBig = pr.Code == 413; }
+            catch (Exception e) when (e is HttpRequestException or IOException) { refusedBig = true; } // the server may close the connection instead of reading an oversized upload
+            Check("a picture over the size limit is refused (413, or the connection is closed)", refusedBig, bigCode.ToString());
             r = await Call(HttpMethod.Delete, "/api/v1/tenants/" + tid, admin);
             Check("an Admin cannot remove a tenant → 403", r.Code == 403, r.Code.ToString());
             r = await Call(HttpMethod.Delete, "/api/v1/tenants/" + tid, boss);

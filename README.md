@@ -49,6 +49,8 @@ container to build and no database server to run.
 - Drag devices into rack units from a **device library** of UniFi gateways and switches, Dell, Lenovo and HP servers, APC Smart-UPS and bypass panels,
   patch panels (RJ45 and fibre: LC, SC, ST, FC, MTP/MPO), FOBOT fibre trays, PDUs, NAS, KVM and the usual endpoints. Build your own devices with any mix of ports.
 - Show every rack from the **front or rear**, with the front screen of UniFi devices, vertical cable managers and per-rack notes.
+- Give every site **levels**: import a PDF (one page per level) or pictures, place each level's comms rooms on its **floor plan**, set a **scale** from a known
+  distance and **measure** on the plan. Plan pictures are stored on the server beside the records, so saves stay small.
 - Place outlets, access points, cameras and PCs on a **room map** (optionally over an uploaded floor plan) and locate sites on a **world map**.
 
 **Patch and trace**
