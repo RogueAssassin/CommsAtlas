@@ -45,7 +45,7 @@ check("\\n  <link" not in html, "Found literal escaped newline in HTML head")
 # Verify local images used in CSS or HTML are present; user uploads and
 # runtime-generated data URLs are intentionally outside this test.
 for text in (html, css):
-    for asset in re.findall(r"/img/([A-Za-z0-9_.-]+(?:\\.svg|\\.png|\\.jpg|\\.webp))", text):
+    for asset in re.findall(r"/img/([A-Za-z0-9_.-]+(?:\.svg|\.png|\.jpg|\.webp))", text):
         check((SRC / "img" / asset).is_file(), f"Referenced image missing: {asset}")
 
 if issues:
