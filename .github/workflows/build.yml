@@ -14,6 +14,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: Visual assets and references
+        run: python3 tools/check_visual_assets.py
       - name: Server checks
         run: dotnet run --project server -c Release -- --selftest
       - name: Build the single-file installer

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/img/website-logo.png" alt="CommsAtlas" width="560">
+  <img src="docs/images/banner.jpg" alt="CommsAtlas: Visualise, Document, Manage" width="900">
 </p>
 
 <p align="center">
